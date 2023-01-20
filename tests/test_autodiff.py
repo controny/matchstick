@@ -1,5 +1,6 @@
-import minitorch
 import pytest
+
+import minitorch
 from minitorch import History
 
 # ## Task 1.3 - Tests for the autodifferentiation machinery.
@@ -46,7 +47,7 @@ def test_chain_rule1():
 
 @pytest.mark.task1_3
 def test_chain_rule2():
-    "Check that constrants are ignored and variables get derivatives."
+    "Check that constants are ignored and variables get derivatives."
     var = minitorch.Variable(History())
     constant = minitorch.Variable(None)
     back = Function1.chain_rule(ctx=None, inputs=[var, constant], d_output=5)
@@ -59,7 +60,7 @@ def test_chain_rule2():
 
 @pytest.mark.task1_3
 def test_chain_rule3():
-    "Check that constrants are ignored and variables get derivatives."
+    "Check that constants are ignored and variables get derivatives."
     constant = 10
     var = minitorch.Scalar(5)
 
