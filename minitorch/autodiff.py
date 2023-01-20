@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 variable_count = 1
 
 
@@ -64,7 +66,8 @@ class Variable:
 
     def is_leaf(self):
         "True if this variable created by the user (no `last_fn`)"
-        return self.history.last_fn is None
+        # no history means it is from a constant and not a leaf
+        return self.history and self.history.last_fn is None
 
     def accumulate_derivative(self, val):
         """
@@ -188,10 +191,11 @@ class History:
             d_output : a derivative with respect to this variable
 
         Returns:
-            list of numbers : a derivative with respect to `inputs`
+            list of (`Variable`, number) : A list of non-constant variables with their derivatives
         """
-        # TODO: Implement for Task 1.4.
-        raise NotImplementedError('Need to implement for Task 1.4')
+        if self.last_fn is None:
+            return []
+        return self.last_fn.chain_rule(self.ctx, self.inputs, d_output)
 
 
 class FunctionBase:
@@ -245,10 +249,8 @@ class FunctionBase:
 
         # Call forward with the variables.
         c = cls.forward(ctx, *raw_vals)
-        assert isinstance(c, cls.data_type), "Expected return typ %s got %s" % (
-            cls.data_type,
-            type(c),
-        )
+        # convert data type
+        c = cls.data_type(c)
 
         # Create a new variable from the result with a new history.
         back = None
@@ -273,8 +275,14 @@ class FunctionBase:
         """
         # Tip: Note when implementing this function that
         # cls.backward may return either a value or a tuple.
-        # TODO: Implement for Task 1.3.
-        raise NotImplementedError('Need to implement for Task 1.3')
+        back_res = cls.backward(ctx, d_output)
+        res = []
+        if not isinstance(back_res, tuple):
+            back_res = (back_res, )
+        for i in range(len(back_res)):
+            if not is_constant(inputs[i]):
+                res.append((inputs[i], back_res[i]))
+        return res
 
 
 # Algorithms for backpropagation
@@ -295,8 +303,18 @@ def topological_sort(variable):
         list of Variables : Non-constant Variables in topological order
                             starting from the right.
     """
-    # TODO: Implement for Task 1.4.
-    raise NotImplementedError('Need to implement for Task 1.4')
+    if variable.is_leaf():
+        return [variable]
+    else:
+        if variable.history is None:
+            return []
+        input_vars = [x for x in variable.history.inputs if isinstance(x, Variable)]
+        res = [variable]
+        for var in input_vars:
+            var.used -= 1
+            if not var.used:
+                res.extend(topological_sort(var))
+        return res
 
 
 def backpropagate(variable, deriv):
@@ -312,5 +330,14 @@ def backpropagate(variable, deriv):
 
     No return. Should write to its results to the derivative values of each leaf through `accumulate_derivative`.
     """
-    # TODO: Implement for Task 1.4.
-    raise NotImplementedError('Need to implement for Task 1.4')
+    sorted_vars = topological_sort(variable)
+    # maintain a mapping from intermediate variable ids to derivatives
+    var2deriv = defaultdict(float)
+    var2deriv[variable.unique_id] += deriv
+    for cur_var in sorted_vars:
+        back_list = cur_var.history.backprop_step(var2deriv[cur_var.unique_id])
+        for var, d in back_list:
+            if var.is_leaf():
+                var.accumulate_derivative(d)
+            else:
+                var2deriv[var.unique_id] += d
