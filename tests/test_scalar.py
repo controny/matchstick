@@ -1,10 +1,16 @@
-from minitorch import central_difference, operators, derivative_check, Scalar
 import pytest
-import minitorch
 from hypothesis import given
-from .strategies import small_scalars, small_floats, assert_close
-from minitorch import MathTestVariable
 
+import minitorch
+from minitorch import (
+    MathTestVariable,
+    Scalar,
+    central_difference,
+    derivative_check,
+    operators,
+)
+
+from .strategies import assert_close, small_floats, small_scalars
 
 # ## Task 1.1 - Test central difference
 
