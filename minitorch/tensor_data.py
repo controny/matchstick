@@ -1,7 +1,10 @@
+from __future__ import annotations
 import random
 from .operators import prod
 from numpy import array, float64, ndarray
 import numba
+from typing import Tuple
+from numpy.typing import ArrayLike
 
 MAX_DIMS = 32
 
@@ -11,7 +14,7 @@ class IndexingError(RuntimeError):
     pass
 
 
-def index_to_position(index, strides):
+def index_to_position(index: ArrayLike, strides: ArrayLike) -> int:
     """
     Converts a multidimensional tensor `index` into a single-dimensional position in
     storage based on strides.
@@ -23,12 +26,14 @@ def index_to_position(index, strides):
     Returns:
         int : position in storage
     """
+    assert len(index) == len(strides)
+    pos = 0
+    for i in range(len(index)):
+        pos += index[i] * strides[i]
+    return pos
 
-    # TODO: Implement for Task 2.1.
-    raise NotImplementedError('Need to implement for Task 2.1')
 
-
-def to_index(ordinal, shape, out_index):
+def to_index(ordinal: int, shape: Tuple[int], out_index: ArrayLike) -> None:
     """
     Convert an `ordinal` to an index in the `shape`.
     Should ensure that enumerating position 0 ... size of a
@@ -44,8 +49,14 @@ def to_index(ordinal, shape, out_index):
       None : Fills in `out_index`.
 
     """
-    # TODO: Implement for Task 2.1.
-    raise NotImplementedError('Need to implement for Task 2.1')
+    assert len(shape) == len(out_index)
+    stride = prod(shape)
+    for i in range(len(shape)):
+        # calculate how many elements passed when moving a step along `shape[i]`
+        stride //= shape[i]
+        cur_idx = ordinal // stride
+        out_index[i] = cur_idx
+        ordinal -= cur_idx * stride
 
 
 def broadcast_index(big_index, big_shape, shape, out_index):
@@ -66,7 +77,7 @@ def broadcast_index(big_index, big_shape, shape, out_index):
         None : Fills in `out_index`.
     """
     # TODO: Implement for Task 2.2.
-    raise NotImplementedError('Need to implement for Task 2.2')
+    raise NotImplementedError("Need to implement for Task 2.2")
 
 
 def shape_broadcast(shape1, shape2):
@@ -84,7 +95,7 @@ def shape_broadcast(shape1, shape2):
         IndexingError : if cannot broadcast
     """
     # TODO: Implement for Task 2.2.
-    raise NotImplementedError('Need to implement for Task 2.2')
+    raise NotImplementedError("Need to implement for Task 2.2")
 
 
 def strides_from_shape(shape):
@@ -177,7 +188,7 @@ class TensorData:
     def tuple(self):
         return (self._storage, self._shape, self._strides)
 
-    def permute(self, *order):
+    def permute(self, *order: int) -> TensorData:
         """
         Permute the dimensions of the tensor.
 
@@ -190,9 +201,12 @@ class TensorData:
         assert list(sorted(order)) == list(
             range(len(self.shape))
         ), f"Must give a position to each dimension. Shape: {self.shape} Order: {order}"
-
-        # TODO: Implement for Task 2.1.
-        raise NotImplementedError('Need to implement for Task 2.1')
+        new_shape = list()
+        new_strides = list()
+        for idx in order:
+            new_shape.append(self._shape[idx])
+            new_strides.append(self._strides[idx])
+        return TensorData(self._storage, tuple(new_shape), tuple(new_strides))
 
     def to_string(self):
         s = ""
