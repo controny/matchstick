@@ -80,7 +80,7 @@ def broadcast_index(big_index, big_shape, shape, out_index):
     raise NotImplementedError("Need to implement for Task 2.2")
 
 
-def shape_broadcast(shape1, shape2):
+def shape_broadcast(shape1: Tuple, shape2: Tuple):
     """
     Broadcast two shapes to create a new union shape.
 
@@ -94,8 +94,25 @@ def shape_broadcast(shape1, shape2):
     Raises:
         IndexingError : if cannot broadcast
     """
-    # TODO: Implement for Task 2.2.
-    raise NotImplementedError("Need to implement for Task 2.2")
+    # add extra dimension of 1
+    len1 = len(shape1)
+    len2 = len(shape2)
+    if len1 < len2:
+        shape1 = tuple([1] * (len2 - len1) + list(shape1))
+    else:
+        shape2 = tuple([1] * (len1 - len2) + list(shape2))
+    out_shape = []
+    for dim1, dim2 in zip(shape1, shape2):
+        if dim1 == dim2:
+            out_dim = dim1
+        elif dim1 == 1:
+            out_dim = dim2
+        elif dim2 == 1:
+            out_dim = dim1
+        else:
+            raise IndexingError
+        out_shape.append(out_dim)
+    return tuple(out_shape)
 
 
 def strides_from_shape(shape):
