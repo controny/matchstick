@@ -238,8 +238,18 @@ def tensor_reduce(fn):
     """
 
     def _reduce(out, out_shape, out_strides, a_storage, a_shape, a_strides, reduce_dim):
-        # TODO: Implement for Task 2.2.
-        raise NotImplementedError('Need to implement for Task 2.2')
+        # iterate over each positions of `out`
+        for out_pos in range(len(out)):
+            # compute the index of each position
+            out_index = np.zeros_like(out_shape)
+            to_index(out_pos, out_shape, out_index)
+            # iterate over the reduce dimension
+            for i in range(a_shape[reduce_dim]):
+                a_index = np.array(out_index)
+                a_index[reduce_dim] = i
+                print(f'a_index {a_index} for out_index {out_index}')
+                a_pos = index_to_position(a_index, a_strides)
+                out[out_pos] = fn(out[out_pos], a_storage[a_pos])
 
     return _reduce
 
