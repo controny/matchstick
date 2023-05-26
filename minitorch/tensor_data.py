@@ -26,7 +26,8 @@ def index_to_position(index: ArrayLike, strides: ArrayLike) -> int:
     Returns:
         int : position in storage
     """
-    assert len(index) == len(strides)
+    assert len(index) == len(strides), \
+        f'Sizes of `index` and `strides` should be the same but got {index} v.s. {strides}'
     pos = 0
     for i in range(len(index)):
         pos += index[i] * strides[i]

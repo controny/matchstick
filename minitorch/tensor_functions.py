@@ -97,8 +97,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class Mul(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return mul_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
@@ -128,7 +127,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class Log(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
+                return log_map(a)
                 raise NotImplementedError('Need to implement for Task 2.3')
 
             @staticmethod
@@ -180,8 +179,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class LT(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return lt_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
@@ -191,8 +189,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class EQ(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return eq_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
@@ -202,8 +199,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class IsClose(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return is_close_zip(a, b)
 
         class Permute(Function):
             @staticmethod
