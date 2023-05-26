@@ -67,6 +67,11 @@ def broadcast_index(big_index, big_shape, shape, out_index):
     given. Additional dimensions may need to be mapped to 0 or
     removed.
 
+    Example 1:
+        5 x 3 <- 5 x 1
+    Example 2:
+        2 x 5 x 1 <- 1 x 5 x 1 <- 5 x 1
+
     Args:
         big_index (array-like): multidimensional index of bigger tensor
         big_shape (array-like): tensor shape of bigger tensor
@@ -76,8 +81,24 @@ def broadcast_index(big_index, big_shape, shape, out_index):
     Returns:
         None : Fills in `out_index`.
     """
-    # TODO: Implement for Task 2.2.
-    raise NotImplementedError("Need to implement for Task 2.2")
+    big_num_dim = len(big_shape)
+    small_num_dim = len(shape)
+    if big_num_dim == small_num_dim:
+        for i in range(small_num_dim):
+            if big_shape[i] == shape[i]:
+                out_index[i] = big_index[i]
+            else:
+                assert shape[i] == 1, 'Only dimension of size 1 can be broadcast'
+                out_index[i] = 0
+    elif big_num_dim > small_num_dim:
+        # remove extra dimensions for bigger shape
+        # then recursively solve the problem
+        num_dim_diff = big_num_dim - small_num_dim
+        new_big_shape = big_shape[num_dim_diff:]
+        new_big_index = big_index[num_dim_diff:]
+        broadcast_index(new_big_index, new_big_shape, shape, out_index)
+    else:
+        raise IndexingError('Invalid to broadcast')
 
 
 def shape_broadcast(shape1: Tuple, shape2: Tuple):

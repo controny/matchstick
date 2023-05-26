@@ -1,4 +1,6 @@
 import numpy as np
+import itertools
+from . import operators
 from .tensor_data import (
     to_index,
     index_to_position,
@@ -39,8 +41,25 @@ def tensor_map(fn):
     """
 
     def _map(out, out_shape, out_strides, in_storage, in_shape, in_strides):
-        # TODO: Implement for Task 2.2.
-        raise NotImplementedError('Need to implement for Task 2.2')
+        assert (in_shape <= out_shape).all(), '`in_shape` must be <= `out_shape`'
+        if (in_shape == out_shape).all():
+            need_broadcast = False
+        else:
+            need_broadcast = True
+        # broadcast to `out_shape`
+        # iterate over each positions of `out`
+        for out_pos in range(len(out)):
+            # compute the index of each position
+            out_index = np.zeros_like(out_shape)
+            to_index(out_pos, out_shape, out_index)
+            if need_broadcast:
+                # broadcast into `out_shape`
+                in_index = np.zeros_like(in_shape)
+                broadcast_index(out_index, out_shape, in_shape, in_index)
+            else:
+                in_index = out_index
+            in_pos = index_to_position(in_index, in_strides)
+            out[out_pos] = fn(in_storage[in_pos])
 
     return _map
 

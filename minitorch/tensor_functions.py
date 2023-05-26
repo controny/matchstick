@@ -108,8 +108,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class Sigmoid(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return sigmoid_map(a)
 
             @staticmethod
             def backward(ctx, grad_output):
@@ -119,8 +118,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class ReLU(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return relu_map(a)
 
             @staticmethod
             def backward(ctx, grad_output):
@@ -141,8 +139,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class Exp(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return exp_map(a)
 
             @staticmethod
             def backward(ctx, grad_output):
