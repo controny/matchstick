@@ -247,7 +247,6 @@ def tensor_reduce(fn):
             for i in range(a_shape[reduce_dim]):
                 a_index = np.array(out_index)
                 a_index[reduce_dim] = i
-                print(f'a_index {a_index} for out_index {out_index}')
                 a_pos = index_to_position(a_index, a_strides)
                 out[out_pos] = fn(out[out_pos], a_storage[a_pos])
 

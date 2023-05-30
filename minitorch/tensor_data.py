@@ -132,7 +132,7 @@ def shape_broadcast(shape1: Tuple, shape2: Tuple):
         elif dim2 == 1:
             out_dim = dim1
         else:
-            raise IndexingError
+            raise IndexingError(f'Fail to broadcast shape {shape1} and {shape2}')
         out_shape.append(out_dim)
     return tuple(out_shape)
 

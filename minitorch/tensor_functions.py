@@ -97,53 +97,61 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class Mul(Function):
             @staticmethod
             def forward(ctx, a, b):
+                ctx.save_for_backward(a, b)
                 return mul_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                # TODO may need to adjust shapes due to potential shape broadcasting
+                a, b = ctx.saved_values
+                return mul_zip(grad_output, b), mul_zip(grad_output, a)
 
         class Sigmoid(Function):
             @staticmethod
             def forward(ctx, a):
-                return sigmoid_map(a)
+                sigmoid_res = sigmoid_map(a)
+                ctx.save_for_backward(sigmoid_res)
+                return sigmoid_res
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                sigmoid_res = ctx.saved_values
+                # sigmoid_res * (1 - sigmoid_res) * grad_output
+                return sigmoid_res * (1 - sigmoid_res) * grad_output
 
         class ReLU(Function):
             @staticmethod
             def forward(ctx, a):
+                ctx.save_for_backward(a)
                 return relu_map(a)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                a = ctx.saved_values
+                return relu_back_zip(a, grad_output)
 
         class Log(Function):
             @staticmethod
             def forward(ctx, a):
+                ctx.save_for_backward(a)
                 return log_map(a)
-                raise NotImplementedError('Need to implement for Task 2.3')
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                a = ctx.saved_values
+                return log_back_zip(a, grad_output)
 
         class Exp(Function):
             @staticmethod
             def forward(ctx, a):
-                return exp_map(a)
+                exp_res = exp_map(a)
+                ctx.save_for_backward(exp_res)
+                return exp_res
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                exp_res = ctx.saved_values
+                return mul_zip(exp_res, grad_output)
 
         class Sum(Function):
             @staticmethod
@@ -183,8 +191,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                return zeros(grad_output.shape), zeros(grad_output.shape)
 
         class EQ(Function):
             @staticmethod
@@ -193,8 +200,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                return zeros(grad_output.shape), zeros(grad_output.shape)
 
         class IsClose(Function):
             @staticmethod
@@ -203,14 +209,20 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
 
         class Permute(Function):
             @staticmethod
-            def forward(ctx, a, order):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+            def forward(ctx, a: Tensor, order):
+                ctx.save_for_backward(order)
+                return Tensor(a._tensor.permute(*order), backend=a.backend)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                ori_order = ctx.saved_values
+                reversed_order = [0] * len(ori_order)
+                for i, pos in enumerate(ori_order):
+                    # move position `i` to position `pos`
+                    reversed_order[pos] = i
+                return Tensor(
+                    grad_output._tensor.permute(*reversed_order),
+                    backend=grad_output.backend)
 
         class View(Function):
             @staticmethod
@@ -262,6 +274,20 @@ TensorFunctions = make_tensor_backend(TensorOps)
 
 
 # Helpers for Constructing tensors
+def ones(shape, backend=TensorFunctions):
+    """
+    Produce a one tensor of size `shape`.
+
+    Args:
+        shape (tuple): shape of tensor
+        backend (:class:`Backend`): tensor backend
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    return Tensor.make([1] * int(operators.prod(shape)), shape, backend=backend)
+
+
 def zeros(shape, backend=TensorFunctions):
     """
     Produce a zero tensor of size `shape`.

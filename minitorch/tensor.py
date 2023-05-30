@@ -1,7 +1,7 @@
 """
 Implementation of the core Tensor object for autodifferentiation.
 """
-
+import numbers
 from .autodiff import Variable
 from .tensor_data import TensorData
 from . import operators
@@ -62,9 +62,10 @@ class Tensor(Variable):
 
     def _ensure_tensor(self, b):
         "Turns a python number into a tensor with the same backend."
-        if isinstance(b, (int, float)):
+        if isinstance(b, numbers.Number):
             b = Tensor.make([b], (1,), backend=self.backend)
         else:
+            assert isinstance(b, Tensor), "The given object is expected to be a Tensor"
             b._type_(self.backend)
         return b
 
@@ -72,11 +73,20 @@ class Tensor(Variable):
     def __add__(self, b):
         return self.backend.Add.apply(self, self._ensure_tensor(b))
 
+    def __radd__(self, b):
+        return self.__add__(b)
+ 
     def __sub__(self, b):
         return self.backend.Add.apply(self, -self._ensure_tensor(b))
 
+    def __rsub__(self, b):
+        return self.backend.Add.apply(self._ensure_tensor(b), -self)
+
     def __mul__(self, b):
         return self.backend.Mul.apply(self, self._ensure_tensor(b))
+    
+    def __rmul__(self, b):
+        return self.__mul__(b)
 
     def __truediv__(self, b):
         return self.backend.Mul.apply(
