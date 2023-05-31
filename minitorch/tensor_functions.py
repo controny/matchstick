@@ -9,6 +9,7 @@ import numpy as np
 from . import operators
 from .tensor import Tensor
 import random
+from typing import Tuple
 
 
 # Constructors
@@ -87,12 +88,16 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
 
         class Add(Function):
             @staticmethod
-            def forward(ctx, t1, t2):
-                return add_zip(t1, t2)
+            def forward(ctx, a, b):
+                ctx.save_for_backward(a.shape, b.shape)
+                return add_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                return grad_output, grad_output
+                a_shape, b_shape = ctx.saved_values
+                return \
+                    adjust_grad_shape(grad_output, a_shape), \
+                    adjust_grad_shape(grad_output, b_shape)
 
         class Mul(Function):
             @staticmethod
@@ -102,9 +107,10 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO may need to adjust shapes due to potential shape broadcasting
                 a, b = ctx.saved_values
-                return mul_zip(grad_output, b), mul_zip(grad_output, a)
+                return \
+                    adjust_grad_shape(mul_zip(grad_output, b), a.shape), \
+                    adjust_grad_shape(mul_zip(grad_output, a), b.shape)
 
         class Sigmoid(Function):
             @staticmethod
@@ -187,20 +193,24 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class LT(Function):
             @staticmethod
             def forward(ctx, a, b):
+                ctx.save_for_backward(a.shape, b.shape)
                 return lt_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                return zeros(grad_output.shape), zeros(grad_output.shape)
+                a_shape, b_shape = ctx.saved_values
+                return zeros(a_shape), zeros(b_shape)
 
         class EQ(Function):
             @staticmethod
             def forward(ctx, a, b):
+                ctx.save_for_backward(a.shape, b.shape)
                 return eq_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                return zeros(grad_output.shape), zeros(grad_output.shape)
+                a_shape, b_shape = ctx.saved_values
+                return zeros(a_shape), zeros(b_shape)
 
         class IsClose(Function):
             @staticmethod
@@ -209,7 +219,7 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
 
         class Permute(Function):
             @staticmethod
-            def forward(ctx, a: Tensor, order):
+            def forward(ctx, a: Tensor, order: Tuple):
                 ctx.save_for_backward(order)
                 return Tensor(a._tensor.permute(*order), backend=a.backend)
 
@@ -262,10 +272,12 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
                     order[-2], order[-1] = order[-1], order[-2]
                     return a._new(a._tensor.permute(*order))
 
-                return (
-                    tensor_ops.matrix_multiply(grad_output, transpose(t2)),
-                    tensor_ops.matrix_multiply(transpose(t1), grad_output),
-                )
+                grad1 = adjust_grad_shape(
+                    tensor_ops.matrix_multiply(grad_output, transpose(t2)), t1.shape)
+                grad2 = adjust_grad_shape(
+                    tensor_ops.matrix_multiply(transpose(t1), grad_output), t2.shape)
+
+                return grad1, grad2
 
     return Backend
 
@@ -274,6 +286,21 @@ TensorFunctions = make_tensor_backend(TensorOps)
 
 
 # Helpers for Constructing tensors
+def adjust_grad_shape(grad: Tensor, old_shape: Tuple):
+    """Adjust shape of `grad` into `old_shape` due to potential broadcasting"""
+    if grad.shape == old_shape:
+        return grad
+    # squeeze extra dimensions
+    num_squeeze = grad.dims - len(old_shape)
+    for i in range(num_squeeze):
+        grad = grad.sum(i)
+    grad = grad.view(*grad.shape[num_squeeze:])
+    # sum over the rest broadcasted dimensions respectively
+    for i, (new_dim, old_dim) in enumerate(zip(grad.shape, old_shape)):
+        if new_dim != old_dim:
+            grad = grad.sum(dim=i)
+    return grad
+
 def ones(shape, backend=TensorFunctions):
     """
     Produce a one tensor of size `shape`.
