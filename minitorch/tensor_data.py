@@ -26,8 +26,6 @@ def index_to_position(index: ArrayLike, strides: ArrayLike) -> int:
     Returns:
         int : position in storage
     """
-    assert len(index) == len(strides), \
-        f'Sizes of `index` and `strides` should be the same but got {index} v.s. {strides}'
     pos = 0
     for i in range(len(index)):
         pos += index[i] * strides[i]
@@ -40,6 +38,7 @@ def to_index(ordinal: int, shape: Tuple[int], out_index: ArrayLike) -> None:
     Should ensure that enumerating position 0 ... size of a
     tensor produces every index exactly once. It
     may not be the inverse of `index_to_position`.
+    Similar to the algorithm of converting decimal to binary.
 
     Args:
         ordinal (int): ordinal position to convert.
@@ -51,13 +50,11 @@ def to_index(ordinal: int, shape: Tuple[int], out_index: ArrayLike) -> None:
 
     """
     assert len(shape) == len(out_index)
-    stride = prod(shape)
-    for i in range(len(shape)):
-        # calculate how many elements passed when moving a step along `shape[i]`
-        stride //= shape[i]
-        cur_idx = ordinal // stride
+    for i in range(len(shape) - 1, -1 ,-1):
+        dim = shape[i]
+        cur_idx = ordinal % dim
         out_index[i] = cur_idx
-        ordinal -= cur_idx * stride
+        ordinal = ordinal // dim
 
 
 def broadcast_index(big_index, big_shape, shape, out_index):
@@ -84,22 +81,16 @@ def broadcast_index(big_index, big_shape, shape, out_index):
     """
     big_num_dim = len(big_shape)
     small_num_dim = len(shape)
-    if big_num_dim == small_num_dim:
-        for i in range(small_num_dim):
-            if big_shape[i] == shape[i]:
-                out_index[i] = big_index[i]
-            else:
-                assert shape[i] == 1, 'Only dimension of size 1 can be broadcast'
-                out_index[i] = 0
-    elif big_num_dim > small_num_dim:
-        # remove extra dimensions for bigger shape
-        # then recursively solve the problem
-        num_dim_diff = big_num_dim - small_num_dim
-        new_big_shape = big_shape[num_dim_diff:]
-        new_big_index = big_index[num_dim_diff:]
-        broadcast_index(new_big_index, new_big_shape, shape, out_index)
-    else:
-        raise IndexingError('Invalid to broadcast')
+    num_dim_diff = big_num_dim - small_num_dim
+    # remove extra dimensions for bigger shape
+    big_shape = big_shape[num_dim_diff:]
+    big_index = big_index[num_dim_diff:]
+    for i in range(small_num_dim):
+        if big_shape[i] == shape[i]:
+            out_index[i] = big_index[i]
+        else:
+            assert shape[i] == 1, 'Only dimension of size 1 can be broadcast'
+            out_index[i] = 0
 
 
 def shape_broadcast(shape1: Tuple, shape2: Tuple):
