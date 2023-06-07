@@ -43,8 +43,29 @@ def tensor_map(fn):
     """
 
     def _map(out, out_shape, out_strides, in_storage, in_shape, in_strides):
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        # when `out` and `in` are stride-aligned, avoid indexing
+        if np.array_equal(in_shape, out_shape) and np.array_equal(in_strides, out_strides):
+            for pos in prange(len(out)):
+                out[pos] = fn(in_storage[pos])
+        else:
+            if np.array_equal(in_shape, out_shape):
+                need_broadcast = False
+            else:
+                need_broadcast = True
+            # broadcast to `out_shape`
+            # iterate over each positions of `out`
+            for out_pos in prange(len(out)):
+                # compute the index of each position
+                out_index = np.zeros_like(out_shape)
+                to_index(out_pos, out_shape, out_index)
+                if need_broadcast:
+                    # broadcast into `out_shape`
+                    in_index = np.zeros_like(in_shape)
+                    broadcast_index(out_index, out_shape, in_shape, in_index)
+                else:
+                    in_index = out_index
+                in_pos = index_to_position(in_index, in_strides)
+                out[out_pos] = fn(in_storage[in_pos])
 
     return njit(parallel=True)(_map)
 

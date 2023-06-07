@@ -63,9 +63,9 @@ def sigmoid(x: float) -> float:
     for stability.
     """
     if x >= 0:
-        return 1.0 / (1.0 + exp(-x))
+        return 1.0 / (1.0 + math.exp(-x))
     else:
-        exponent = exp(x)
+        exponent = math.exp(x)
         return exponent / (1.0 + exponent)
 
 
