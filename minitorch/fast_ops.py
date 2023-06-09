@@ -138,8 +138,33 @@ def tensor_zip(fn):
         b_shape,
         b_strides,
     ):
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        # when `out`, `a`, `b` are stride-aligned, avoid indexing
+        if np.array_equal(a_shape, b_shape) and np.array_equal(b_shape, out_shape) and \
+            np.array_equal(a_strides, b_strides) and np.array_equal(b_strides, out_strides):
+            for pos in prange(len(out)):
+                out[pos] = fn(a_storage[pos], b_storage[pos])
+        else:
+            if np.array_equal(a_shape, b_shape):
+                need_broadcast = False
+            else:
+                need_broadcast = True
+            # broadcast to `out_shape`
+            # iterate over each positions of `out`
+            for out_pos in prange(len(out)):
+                # compute the index of each position
+                out_index = np.zeros_like(out_shape)
+                to_index(out_pos, out_shape, out_index)
+                if need_broadcast:
+                    # broadcast into `out_shape`
+                    a_index = np.zeros_like(a_shape)
+                    b_index = np.zeros_like(b_shape)
+                    broadcast_index(out_index, out_shape, a_shape, a_index)
+                    broadcast_index(out_index, out_shape, b_shape, b_index)
+                else:
+                    a_index = b_index = out_index
+                a_pos = index_to_position(a_index, a_strides)
+                b_pos = index_to_position(b_index, b_strides)
+                out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return njit(parallel=True)(_zip)
 
@@ -196,8 +221,19 @@ def tensor_reduce(fn):
     """
 
     def _reduce(out, out_shape, out_strides, a_storage, a_shape, a_strides, reduce_dim):
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        # iterate over each positions of `out`
+        for out_pos in prange(len(out)):
+            # compute the index of each position
+            a_index = np.zeros_like(out_shape)
+            to_index(out_pos, out_shape, a_index)
+            # iterate over the reduce dimension
+            a_index[reduce_dim] = 0
+            a_pos = index_to_position(a_index, a_strides)
+            # add stride manually
+            # TODO BUG: prange will cause wrong result 
+            for i in range(a_shape[reduce_dim]):
+                out[out_pos] = fn(out[out_pos], a_storage[a_pos])
+                a_pos += a_strides[reduce_dim]
 
     return njit(parallel=True)(_reduce)
 
