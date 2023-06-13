@@ -229,11 +229,14 @@ def tensor_reduce(fn):
             # iterate over the reduce dimension
             a_index[reduce_dim] = 0
             a_pos = index_to_position(a_index, a_strides)
-            # add stride manually
-            # TODO BUG: prange will cause wrong result 
-            for i in range(a_shape[reduce_dim]):
-                out[out_pos] = fn(out[out_pos], a_storage[a_pos])
-                a_pos += a_strides[reduce_dim]
+            # copy the original value out to avoid race condition
+            reduction = out[out_pos]
+            for i in prange(a_shape[reduce_dim]):
+                # add stride manually
+                # declare a new local variable to avoid race condition 
+                cur_pos = a_pos + a_strides[reduce_dim] * i
+                reduction += fn(out[out_pos], a_storage[cur_pos])
+            out[out_pos] = reduction
 
     return njit(parallel=True)(_reduce)
 
