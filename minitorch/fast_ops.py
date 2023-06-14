@@ -330,8 +330,24 @@ def tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
 
-    # TODO: Implement for Task 3.2.
-    raise NotImplementedError('Need to implement for Task 3.2')
+    reduce_size = a_shape[-1]
+    for out_pos in prange(len(out)):
+        # TODO not to use index buffer
+        # compute the index of each position
+        out_index = np.zeros_like(out_shape)
+        to_index(out_pos, out_shape, out_index)
+        # to deal with batch size broadcast,
+        # take into account batch stride and compute position directly
+        # (out0, out1, 0)
+        a_start_pos = out_index[0] * a_batch_stride + out_index[1] * a_strides[-2]
+        # (out0, 0, out2)
+        b_start_pos = out_index[0] * b_batch_stride + out_index[2] * b_strides[-1]
+        reduction = out[out_pos]
+        for i in prange(reduce_size):
+            a_cur_pos = a_start_pos + a_strides[-1] * i
+            b_cur_pos = b_start_pos + b_strides[-2] * i
+            reduction += a_storage[a_cur_pos] * b_storage[b_cur_pos]
+        out[out_pos] = reduction
 
 
 def matrix_multiply(a, b):
