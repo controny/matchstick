@@ -6,6 +6,7 @@ from .tensor_data import (
     shape_broadcast,
     MAX_DIMS,
 )
+from . import operators
 from numba import njit, prange
 
 
@@ -219,6 +220,8 @@ def tensor_reduce(fn):
         None : Fills in `out`
 
     """
+    # avoid mentioning self-defined function in `prange` loops
+    op = fn.__name__
 
     def _reduce(out, out_shape, out_strides, a_storage, a_shape, a_strides, reduce_dim):
         # iterate over each positions of `out`
@@ -235,7 +238,15 @@ def tensor_reduce(fn):
                 # add stride manually
                 # declare a new local variable to avoid race condition 
                 cur_pos = a_pos + a_strides[reduce_dim] * i
-                reduction += fn(out[out_pos], a_storage[cur_pos])
+                # avoid calling function
+                if op == 'add':
+                    reduction += a_storage[cur_pos]
+                elif op == 'mul':
+                    reduction *= a_storage[cur_pos]
+                elif op == 'max':
+                    reduction = max(reduction, a_storage[cur_pos])
+                else:
+                    reduction = fn(reduction, a_storage[cur_pos])
             out[out_pos] = reduction
 
     return njit(parallel=True)(_reduce)
@@ -257,6 +268,8 @@ def reduce(fn, start=0.0):
     Returns:
         :class:`Tensor` : new tensor
     """
+    assert fn in [operators.add, operators.mul, operators.max], \
+        f'Got unexpected function {fn}'
 
     f = tensor_reduce(njit()(fn))
 
