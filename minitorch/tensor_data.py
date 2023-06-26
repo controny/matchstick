@@ -5,6 +5,7 @@ from numpy import array, float64, ndarray
 import numba
 from typing import Tuple
 from numpy.typing import ArrayLike
+import os
 
 MAX_DIMS = 32
 
@@ -160,7 +161,7 @@ class TensorData:
         assert len(self._storage) == self.size
 
     def to_cuda_(self):  # pragma: no cover
-        if not numba.cuda.is_cuda_array(self._storage):
+        if os.environ.get('NUMBA_ENABLE_CUDASIM') == '1' or not numba.cuda.is_cuda_array(self._storage):
             self._storage = numba.cuda.to_device(self._storage)
 
     def is_contiguous(self):

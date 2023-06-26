@@ -1,5 +1,6 @@
 from numba import cuda
 import numba
+import numpy as np
 from .tensor_data import (
     to_index,
     index_to_position,
@@ -42,8 +43,32 @@ def tensor_map(fn):
     """
 
     def _map(out, out_shape, out_strides, out_size, in_storage, in_shape, in_strides):
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        # Thread id in a 1D block
+        tx = cuda.threadIdx.x
+        # Block id in a 1D grid
+        ty = cuda.blockIdx.x
+        # Block width, i.e. number of threads per block
+        bw = cuda.blockDim.x
+        # Compute flattened index inside the array
+        pos = tx + ty * bw
+        # check array boundaries
+        if pos < out_size:
+            if np.array_equal(in_shape, out_shape) and np.array_equal(in_strides, out_strides):
+                # when `out` and `in` are stride-aligned, avoid indexing
+                out[pos] = fn(in_storage[pos])
+            else:
+                # compute the index of each position
+                out_index = np.zeros_like(out_shape)
+                to_index(pos, out_shape, out_index)
+                if np.array_equal(in_shape, out_shape):
+                    # no need to broadcast
+                    in_index = out_index
+                else:
+                    # broadcast into `out_shape`
+                    in_index = np.zeros_like(in_shape)
+                    broadcast_index(out_index, out_shape, in_shape, in_index)
+                in_pos = index_to_position(in_index, in_strides)
+                out[pos] = fn(in_storage[in_pos])
 
     return cuda.jit()(_map)
 
@@ -101,8 +126,34 @@ def tensor_zip(fn):
         b_shape,
         b_strides,
     ):
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        # Thread id in a 1D block
+        tx = cuda.threadIdx.x
+        # Block id in a 1D grid
+        ty = cuda.blockIdx.x
+        # Block width, i.e. number of threads per block
+        bw = cuda.blockDim.x
+        # Compute flattened index inside the array
+        pos = tx + ty * bw
+        # check array boundaries
+        if pos < out_size:
+            # when `out`, `a`, `b` are stride-aligned, avoid indexing
+            if np.array_equal(a_shape, b_shape) and np.array_equal(b_shape, out_shape) and \
+                np.array_equal(a_strides, b_strides) and np.array_equal(b_strides, out_strides):
+                out[pos] = fn(a_storage[pos], b_storage[pos])
+            else:
+                out_index = np.zeros_like(out_shape)
+                to_index(pos, out_shape, out_index)
+                if np.array_equal(a_shape, b_shape):
+                    a_index = b_index = out_index
+                else:
+                    # broadcast into `out_shape`
+                    a_index = np.zeros_like(a_shape)
+                    b_index = np.zeros_like(b_shape)
+                    broadcast_index(out_index, out_shape, a_shape, a_index)
+                    broadcast_index(out_index, out_shape, b_shape, b_index)
+                a_pos = index_to_position(a_index, a_strides)
+                b_pos = index_to_position(b_index, b_strides)
+                out[pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return cuda.jit()(_zip)
 
