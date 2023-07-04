@@ -20,6 +20,15 @@ broadcast_index = cuda.jit(device=True)(broadcast_index)
 
 THREADS_PER_BLOCK = 32
 
+@cuda.jit(device=True)
+def array_equal(a, b):
+    if len(a) != len(b):
+        return False
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return False
+    return True
+
 
 def tensor_map(fn):
     """
@@ -53,19 +62,20 @@ def tensor_map(fn):
         pos = tx + ty * bw
         # check array boundaries
         if pos < out_size:
-            if np.array_equal(in_shape, out_shape) and np.array_equal(in_strides, out_strides):
+            if array_equal(in_shape, out_shape) and array_equal(in_strides, out_strides):
                 # when `out` and `in` are stride-aligned, avoid indexing
                 out[pos] = fn(in_storage[pos])
             else:
-                # compute the index of each position
-                out_index = np.zeros_like(out_shape)
+                # hardcoded static allocation
+                max_index_size = 100
+                out_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
                 to_index(pos, out_shape, out_index)
-                if np.array_equal(in_shape, out_shape):
+                if array_equal(in_shape, out_shape):
                     # no need to broadcast
                     in_index = out_index
                 else:
                     # broadcast into `out_shape`
-                    in_index = np.zeros_like(in_shape)
+                    in_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
                     broadcast_index(out_index, out_shape, in_shape, in_index)
                 in_pos = index_to_position(in_index, in_strides)
                 out[pos] = fn(in_storage[in_pos])
@@ -137,18 +147,20 @@ def tensor_zip(fn):
         # check array boundaries
         if pos < out_size:
             # when `out`, `a`, `b` are stride-aligned, avoid indexing
-            if np.array_equal(a_shape, b_shape) and np.array_equal(b_shape, out_shape) and \
-                np.array_equal(a_strides, b_strides) and np.array_equal(b_strides, out_strides):
+            if array_equal(a_shape, b_shape) and array_equal(b_shape, out_shape) and \
+                array_equal(a_strides, b_strides) and array_equal(b_strides, out_strides):
                 out[pos] = fn(a_storage[pos], b_storage[pos])
             else:
-                out_index = np.zeros_like(out_shape)
+                # hardcoded static allocation
+                max_index_size = 100
+                out_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
                 to_index(pos, out_shape, out_index)
-                if np.array_equal(a_shape, b_shape):
+                if array_equal(a_shape, b_shape):
                     a_index = b_index = out_index
                 else:
                     # broadcast into `out_shape`
-                    a_index = np.zeros_like(a_shape)
-                    b_index = np.zeros_like(b_shape)
+                    a_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+                    b_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
                     broadcast_index(out_index, out_shape, a_shape, a_index)
                     broadcast_index(out_index, out_shape, b_shape, b_index)
                 a_pos = index_to_position(a_index, a_strides)

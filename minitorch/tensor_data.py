@@ -28,7 +28,7 @@ def index_to_position(index: ArrayLike, strides: ArrayLike) -> int:
         int : position in storage
     """
     pos = 0
-    for i in range(len(index)):
+    for i in range(len(strides)):
         pos += index[i] * strides[i]
     return pos
 
@@ -50,7 +50,6 @@ def to_index(ordinal: int, shape: Tuple[int], out_index: ArrayLike) -> None:
       None : Fills in `out_index`.
 
     """
-    assert len(shape) == len(out_index)
     for i in range(len(shape) - 1, -1 ,-1):
         dim = shape[i]
         cur_idx = ordinal % dim
