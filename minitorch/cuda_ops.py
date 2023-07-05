@@ -207,9 +207,27 @@ def _sum_practice(out, a, size):
         size (int):  length of a.
 
     """
-    BLOCK_DIM = 32
-    # TODO: Implement for Task 3.3.
-    raise NotImplementedError('Need to implement for Task 3.3')
+    BLOCK_DIM = 32  # equals to `THREADS_PER_BLOCK`
+    # The memory will be shared only within the same block,
+    # according to https://numba.pydata.org/numba-doc/latest/cuda/memory.html
+    shared_mem = cuda.shared.array(shape=(1), dtype=numba.float64)
+
+    pos = cuda.grid(1)
+    if pos >= size:
+        return
+
+    # initialize for each block memory
+    if pos % BLOCK_DIM == 0:
+        shared_mem[0] = 0
+    cuda.syncthreads()
+
+    cuda.atomic.add(shared_mem, 0, a[pos])
+    cuda.syncthreads()
+
+    # sum up each block respectively
+    if pos % BLOCK_DIM == 0:
+        cuda.atomic.add(out, 0, shared_mem[0])
+        cuda.syncthreads()
 
 
 jit_sum_practice = cuda.jit()(_sum_practice)
