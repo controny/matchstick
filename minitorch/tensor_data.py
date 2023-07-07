@@ -54,7 +54,7 @@ def to_index(ordinal: int, shape: Tuple[int], out_index: ArrayLike) -> None:
         dim = shape[i]
         cur_idx = ordinal % dim
         out_index[i] = cur_idx
-        ordinal = ordinal // dim
+        ordinal = int(ordinal / dim)
 
 
 def broadcast_index(big_index, big_shape, shape, out_index):

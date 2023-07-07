@@ -386,13 +386,40 @@ def _mm_practice(out, a, b, size):
     Args:
         out (array): storage for `out` tensor.
         a (array): storage for `a` tensor.
-        b (array): storage for `a` tensor.
+        b (array): storage for `b` tensor.
         size (int): size of the square
 
     """
     BLOCK_DIM = 32
-    # TODO: Implement for Task 3.3.
-    raise NotImplementedError('Need to implement for Task 3.3')
+    MEM_SIZE = 1024  # 32 * 32
+    # use shared memory to avoid load data multiple times
+    # refer to https://numba.pydata.org/numba-doc/latest/cuda/examples.html#cuda-matmul
+    a_shared_mem = cuda.shared.array(shape=(MEM_SIZE), dtype=numba.float64)
+    b_shared_mem = cuda.shared.array(shape=(MEM_SIZE), dtype=numba.float64)
+    # each thread corresponds to each position of the output matrix
+    tx = cuda.threadIdx.x
+    ty = cuda.threadIdx.y
+    if tx >= size or ty >= size:
+        return
+    pos = tx * size + ty
+
+    # preload data
+    # each thread is responsible for each position
+    a_shared_mem[pos] = a[pos]
+    b_shared_mem[pos] = b[pos]
+    cuda.syncthreads()
+
+    reduction = .0
+    # (tx, 0)
+    a_start_pos = tx * size
+    # (0, ty)
+    b_start_pos = ty
+    for i in range(size):
+        # strides are (size, 1)
+        a_cur_pos = a_start_pos + i
+        b_cur_pos = b_start_pos + size * i
+        reduction += a_shared_mem[a_cur_pos] * b_shared_mem[b_cur_pos]
+    out[pos] = reduction
 
 
 jit_mm_practice = cuda.jit()(_mm_practice)
