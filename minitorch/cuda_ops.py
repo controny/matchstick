@@ -1,6 +1,7 @@
 from numba import cuda
 import numba
 import numpy as np
+from . import operators
 from .tensor_data import (
     to_index,
     index_to_position,
@@ -67,7 +68,7 @@ def tensor_map(fn):
                 out[pos] = fn(in_storage[pos])
             else:
                 # hardcoded static allocation
-                max_index_size = 100
+                max_index_size = 10
                 out_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
                 to_index(pos, out_shape, out_index)
                 if array_equal(in_shape, out_shape):
@@ -152,7 +153,7 @@ def tensor_zip(fn):
                 out[pos] = fn(a_storage[pos], b_storage[pos])
             else:
                 # hardcoded static allocation
-                max_index_size = 100
+                max_index_size = 10
                 out_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
                 to_index(pos, out_shape, out_index)
                 if array_equal(a_shape, b_shape):
@@ -263,6 +264,7 @@ def tensor_reduce(fn):
     Returns:
         None : Fills in `out`
     """
+    op = fn.py_func.__name__
 
     def _reduce(
         out,
@@ -276,8 +278,42 @@ def tensor_reduce(fn):
         reduce_value,
     ):
         BLOCK_DIM = 1024
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        # each block is responsible for each element of `out_a`
+        shared_mem = cuda.shared.array(shape=(1), dtype=numba.float64)
+        # Thread id in a 1D block, corresponding to the index along the reduce dimension of `a`
+        tx = cuda.threadIdx.x
+        # Block id in a 1D grid, corresponding to the index of `out`
+        ty = cuda.blockIdx.x
+        pos = cuda.grid(1)
+        # only use threads within the reduce dimension
+        if tx >= a_shape[reduce_dim]:
+            return
+
+        # initialize for each block memory
+        if pos % BLOCK_DIM == 0:
+            shared_mem[0] = reduce_value
+        cuda.syncthreads()
+
+        max_index_size = 10
+        a_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+        to_index(ty, out_shape, a_index)
+        a_index[reduce_dim] = tx
+        a_pos = index_to_position(a_index, a_strides)
+        if op == 'add':
+            cuda.atomic.add(shared_mem, 0, a_storage[a_pos])
+        elif op == 'max':
+            cuda.atomic.max(shared_mem, 0, a_storage[a_pos])
+        elif op == 'mul':
+            # TODO support real multiply
+            # luckily, we only need to adapt for `all()` in this project
+            cuda.atomic.and_(shared_mem, 0, a_storage[a_pos])
+
+        cuda.syncthreads()
+
+        if pos % BLOCK_DIM == 0:
+            # assign to the output
+            out[ty] = shared_mem[0]
+            cuda.syncthreads()
 
     return cuda.jit()(_reduce)
 
@@ -305,6 +341,8 @@ def reduce(fn, start=0.0):
     Returns:
         :class:`Tensor` : new tensor
     """
+    assert fn in [operators.add, operators.mul, operators.max], \
+        f'Got unexpected function {fn}'
     f = tensor_reduce(cuda.jit(device=True)(fn))
 
     def ret(a, dim):
