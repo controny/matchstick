@@ -482,8 +482,61 @@ def tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
     BLOCK_DIM = 32
-    # TODO: Implement for Task 3.4.
-    raise NotImplementedError('Need to implement for Task 3.4')
+    MEM_SIZE = BLOCK_DIM * BLOCK_DIM
+    # use shared memory to avoid load data multiple times
+    # refer to https://numba.pydata.org/numba-doc/latest/cuda/examples.html#cuda-matmul
+    a_shared_mem = cuda.shared.array(shape=(BLOCK_DIM, BLOCK_DIM), dtype=numba.float64)
+    b_shared_mem = cuda.shared.array(shape=(BLOCK_DIM, BLOCK_DIM), dtype=numba.float64)
+    # each thread corresponds to each position of the output matrix
+    # we should use the coordinates in the global view of grid
+    gx, gy, _ = cuda.grid(3)
+    tx = cuda.threadIdx.x
+    ty = cuda.threadIdx.y
+    # the z of block index is the index of batch
+    bz = cuda.blockIdx.z
+    if gx >= out_shape[1] or gy >= out_shape[2]:
+        return
+    out_pos = bz * out_strides[0] + gx * out_strides[1] + gy * out_strides[2]
+
+    # compute the index of each position
+    max_index_size = 10
+    out_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+    to_index(out_pos, out_shape, out_index)
+    # to deal with batch size broadcast,
+    # take into account batch stride and compute position directly
+    # (z, x, ty)
+    a_start_pos = out_index[0] * a_batch_stride + out_index[1] * a_strides[-2] + ty * a_strides[-1]
+    # (z, tx, y)
+    b_start_pos = out_index[0] * b_batch_stride + tx * b_strides[-2] + out_index[2] * b_strides[-1]
+    reduce_size = a_shape[-1]
+    reduction = .0
+    # the number of preloading loops should depend on the reduce size
+    num_preload_loops = (reduce_size - 1) // BLOCK_DIM + 1
+    # DEBUG
+    if out_pos == 0:
+        print('a_shape', a_shape[0], a_shape[1], a_shape[2], 'b_shape', b_shape[0], b_shape[1], b_shape[2], 'num_preload_loops', num_preload_loops, 'reduce_size', reduce_size, 'blocks_x', cuda.gridDim.x, 'blocks_y', cuda.gridDim.y, 'blocks_z', cuda.gridDim.z)
+        print('b_strides', b_strides[0], b_strides[1], b_strides[2])
+    # if cuda.blockIdx.x > 0:
+    #     print('out_index', out_index[0], out_index[1], out_index[2])
+    #     print('global coord', gx, gy, 'a_start_pos', a_start_pos, 'b_start_pos', b_start_pos)
+    # keep track of the reduce progress
+    reduce_left = reduce_size
+    for i in range(num_preload_loops):
+        # preload data circularly
+        # load `a[z, x, ty + i * blockDim]`
+        a_cur_pos = a_start_pos + a_strides[-1] * i * BLOCK_DIM
+        a_shared_mem[tx, ty] = a_storage[a_cur_pos]
+        # load `b[z, tx + i * blockDim, y]`
+        b_cur_pos = b_start_pos + b_strides[-2] * i * BLOCK_DIM
+        b_shared_mem[tx, ty] = b_storage[b_cur_pos]
+        cuda.syncthreads()
+
+        local_reduce_size = min(BLOCK_DIM, reduce_left)
+        for k in range(local_reduce_size):
+            reduction += a_shared_mem[tx, k] * b_shared_mem[k, ty]
+            reduce_left -= 1
+        cuda.syncthreads()
+    out[out_pos] = reduction
 
 
 def matrix_multiply(a, b):
