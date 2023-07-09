@@ -1,5 +1,5 @@
 import minitorch
-import datasets
+from minitorch import datasets
 import numba
 import random
 
@@ -118,11 +118,11 @@ if __name__ == "__main__":
     PTS = args.PTS
 
     if args.DATASET == "xor":
-        data = datasets.xor(PTS)
+        data = datasets['Xor'](PTS)
     elif args.DATASET == "simple":
-        data = datasets.simple(PTS)
+        data = datasets['Simple'](PTS)
     elif args.DATASET == "split":
-        data = datasets.split(PTS)
+        data = datasets['Split'](PTS)
 
     HIDDEN = int(args.HIDDEN)
     RATE = args.RATE
