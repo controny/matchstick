@@ -264,7 +264,6 @@ def tensor_reduce(fn):
     Returns:
         None : Fills in `out`
     """
-    op = fn.py_func.__name__
 
     def _reduce(
         out,
@@ -279,42 +278,39 @@ def tensor_reduce(fn):
     ):
         BLOCK_DIM = 1024
         # each block is responsible for each element of `out_a`
-        data_type = numba.int64 if op == 'mul' else numba.float64
-        shared_mem = cuda.shared.array(shape=(1), dtype=data_type)
+        shared_mem = cuda.shared.array(shape=(BLOCK_DIM), dtype=a_storage.dtype)
         # Thread id in a 1D block, corresponding to the index along the reduce dimension of `a`
         tx = cuda.threadIdx.x
         # Block id in a 1D grid, corresponding to the index of `out`
         ty = cuda.blockIdx.x
+        reduce_size = a_shape[reduce_dim]
         pos = cuda.grid(1)
         # only use threads within the reduce dimension
-        if tx >= a_shape[reduce_dim]:
+        if tx >= reduce_size:
             return
 
-        # initialize for each block memory
-        if pos % BLOCK_DIM == 0:
-            shared_mem[0] = reduce_value
-        cuda.syncthreads()
-
+        # preload data
         max_index_size = 10
         a_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
         to_index(ty, out_shape, a_index)
         a_index[reduce_dim] = tx
         a_pos = index_to_position(a_index, a_strides)
-        if op == 'add':
-            cuda.atomic.add(shared_mem, 0, a_storage[a_pos])
-        elif op == 'max':
-            cuda.atomic.max(shared_mem, 0, a_storage[a_pos])
-        elif op == 'mul':
-            # TODO support real multiply
-            # luckily, we only need to adapt for `all()` in this project
-            cuda.atomic.and_(shared_mem, 0, a_storage[a_pos])
-
+        shared_mem[tx] = a_storage[a_pos]
         cuda.syncthreads()
 
-        if pos % BLOCK_DIM == 0:
-            # assign to the output
-            out[ty] = shared_mem[0]
+        # improve the efficiency in a "merge-sort" manner
+        # refer to https://numba.readthedocs.io/en/stable/cuda/examples.html#id12
+        s = 1
+        while s < reduce_size:
+            if tx % (2 * s) == 0 and tx + s < reduce_size:
+                # merge
+                shared_mem[tx] = fn(shared_mem[tx], shared_mem[tx + s])
+            s *= 2
             cuda.syncthreads()
+        
+        if tx == 0:
+            # the result will finally be reduced into the position 0
+            out[ty] = shared_mem[0]
 
     return cuda.jit()(_reduce)
 
@@ -348,13 +344,18 @@ def reduce(fn, start=0.0):
 
     def ret(a, dim):
         out_shape = list(a.shape)
-        out_shape[dim] = (a.shape[dim] - 1) // 1024 + 1
+        # out_shape[dim] = (a.shape[dim] - 1) // 1024 + 1
+        out_shape[dim] = 1
         out_a = a.zeros(tuple(out_shape))
 
         threadsperblock = 1024
         blockspergrid = out_a.size
+        # control the data movement
+        a_storage, a_shape, a_strides = a.tuple()
+        # no need to copy the `a_storage` back
+        d_a_storage = cuda.to_device(a_storage)
         f[blockspergrid, threadsperblock](
-            *out_a.tuple(), out_a.size, *a.tuple(), dim, start
+            *out_a.tuple(), out_a.size, d_a_storage, a_shape, a_strides, dim, start
         )
 
         return out_a
