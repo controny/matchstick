@@ -95,7 +95,14 @@ def map(fn):
         # Instantiate and run the cuda kernel.
         threadsperblock = THREADS_PER_BLOCK
         blockspergrid = (out.size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
-        f[blockspergrid, threadsperblock](*out.tuple(), out.size, *a.tuple())
+        # control the data movement
+        a_storage, a_shape, a_strides = a.tuple()
+        # no need to copy the input storages back
+        d_a_storage = cuda.to_device(a_storage)
+        f[blockspergrid, threadsperblock](
+            *out.tuple(), out.size,
+            d_a_storage, a_shape, a_strides
+        )
         return out
 
     return ret
@@ -179,8 +186,16 @@ def zip(fn):
         out = a.zeros(c_shape)
         threadsperblock = THREADS_PER_BLOCK
         blockspergrid = (out.size + (threadsperblock - 1)) // threadsperblock
+        # control the data movement
+        a_storage, a_shape, a_strides = a.tuple()
+        b_storage, b_shape, b_strides = b.tuple()
+        # no need to copy the input storages back
+        d_a_storage = cuda.to_device(a_storage)
+        d_b_storage = cuda.to_device(b_storage)
         f[blockspergrid, threadsperblock](
-            *out.tuple(), out.size, *a.tuple(), *b.tuple()
+            *out.tuple(), out.size,
+            d_a_storage, a_shape, a_strides,
+            d_b_storage, b_shape, b_strides
         )
         return out
 
@@ -573,8 +588,16 @@ def matrix_multiply(a, b):
     )
     threadsperblock = (THREADS_PER_BLOCK, THREADS_PER_BLOCK, 1)
 
+    # control the data movement
+    a_storage, a_shape, a_strides = a.tuple()
+    b_storage, b_shape, b_strides = b.tuple()
+    # no need to copy the input storages back
+    d_a_storage = cuda.to_device(a_storage)
+    d_b_storage = cuda.to_device(b_storage)
     tensor_matrix_multiply[blockspergrid, threadsperblock](
-        *out.tuple(), out.size, *a.tuple(), *b.tuple()
+        *out.tuple(), out.size,
+        d_a_storage, a_shape, a_strides,
+        d_b_storage, b_shape, b_strides
     )
 
     # Undo 3d if we added it.
