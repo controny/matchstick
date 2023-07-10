@@ -250,6 +250,7 @@ class FunctionBase:
         # Call forward with the variables.
         c = cls.forward(ctx, *raw_vals)
 
+
         # Create a new variable from the result with a new history.
         back = None
         if need_grad:
