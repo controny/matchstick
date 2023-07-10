@@ -249,8 +249,6 @@ class FunctionBase:
 
         # Call forward with the variables.
         c = cls.forward(ctx, *raw_vals)
-        # convert data type
-        c = cls.data_type(c)
 
         # Create a new variable from the result with a new history.
         back = None

@@ -1,5 +1,7 @@
 from numba import cuda
 import numba
+import numpy as np
+from . import operators
 from .tensor_data import (
     to_index,
     index_to_position,
@@ -18,6 +20,16 @@ index_to_position = cuda.jit(device=True)(index_to_position)
 broadcast_index = cuda.jit(device=True)(broadcast_index)
 
 THREADS_PER_BLOCK = 32
+
+
+@cuda.jit(device=True)
+def array_equal(a, b):
+    if len(a) != len(b):
+        return False
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return False
+    return True
 
 
 def tensor_map(fn):
@@ -42,8 +54,33 @@ def tensor_map(fn):
     """
 
     def _map(out, out_shape, out_strides, out_size, in_storage, in_shape, in_strides):
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        # Thread id in a 1D block
+        tx = cuda.threadIdx.x
+        # Block id in a 1D grid
+        ty = cuda.blockIdx.x
+        # Block width, i.e. number of threads per block
+        bw = cuda.blockDim.x
+        # Compute flattened index inside the array
+        pos = tx + ty * bw
+        # check array boundaries
+        if pos < out_size:
+            if array_equal(in_shape, out_shape) and array_equal(in_strides, out_strides):
+                # when `out` and `in` are stride-aligned, avoid indexing
+                out[pos] = fn(in_storage[pos])
+            else:
+                # hardcoded static allocation
+                max_index_size = 10
+                out_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+                to_index(pos, out_shape, out_index)
+                if array_equal(in_shape, out_shape):
+                    # no need to broadcast
+                    in_index = out_index
+                else:
+                    # broadcast into `out_shape`
+                    in_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+                    broadcast_index(out_index, out_shape, in_shape, in_index)
+                in_pos = index_to_position(in_index, in_strides)
+                out[pos] = fn(in_storage[in_pos])
 
     return cuda.jit()(_map)
 
@@ -59,7 +96,14 @@ def map(fn):
         # Instantiate and run the cuda kernel.
         threadsperblock = THREADS_PER_BLOCK
         blockspergrid = (out.size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
-        f[blockspergrid, threadsperblock](*out.tuple(), out.size, *a.tuple())
+        # control the data movement
+        a_storage, a_shape, a_strides = a.tuple()
+        # no need to copy the input storages back
+        d_a_storage = cuda.to_device(a_storage)
+        f[blockspergrid, threadsperblock](
+            *out.tuple(), out.size,
+            d_a_storage, a_shape, a_strides
+        )
         return out
 
     return ret
@@ -101,8 +145,36 @@ def tensor_zip(fn):
         b_shape,
         b_strides,
     ):
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        # Thread id in a 1D block
+        tx = cuda.threadIdx.x
+        # Block id in a 1D grid
+        ty = cuda.blockIdx.x
+        # Block width, i.e. number of threads per block
+        bw = cuda.blockDim.x
+        # Compute flattened index inside the array
+        pos = tx + ty * bw
+        # check array boundaries
+        if pos < out_size:
+            # when `out`, `a`, `b` are stride-aligned, avoid indexing
+            if array_equal(a_shape, b_shape) and array_equal(b_shape, out_shape) and \
+                    array_equal(a_strides, b_strides) and array_equal(b_strides, out_strides):
+                out[pos] = fn(a_storage[pos], b_storage[pos])
+            else:
+                # hardcoded static allocation
+                max_index_size = 10
+                out_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+                to_index(pos, out_shape, out_index)
+                if array_equal(a_shape, b_shape):
+                    a_index = b_index = out_index
+                else:
+                    # broadcast into `out_shape`
+                    a_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+                    b_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+                    broadcast_index(out_index, out_shape, a_shape, a_index)
+                    broadcast_index(out_index, out_shape, b_shape, b_index)
+                a_pos = index_to_position(a_index, a_strides)
+                b_pos = index_to_position(b_index, b_strides)
+                out[pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return cuda.jit()(_zip)
 
@@ -115,8 +187,16 @@ def zip(fn):
         out = a.zeros(c_shape)
         threadsperblock = THREADS_PER_BLOCK
         blockspergrid = (out.size + (threadsperblock - 1)) // threadsperblock
+        # control the data movement
+        a_storage, a_shape, a_strides = a.tuple()
+        b_storage, b_shape, b_strides = b.tuple()
+        # no need to copy the input storages back
+        d_a_storage = cuda.to_device(a_storage)
+        d_b_storage = cuda.to_device(b_storage)
         f[blockspergrid, threadsperblock](
-            *out.tuple(), out.size, *a.tuple(), *b.tuple()
+            *out.tuple(), out.size,
+            d_a_storage, a_shape, a_strides,
+            d_b_storage, b_shape, b_strides
         )
         return out
 
@@ -144,9 +224,27 @@ def _sum_practice(out, a, size):
         size (int):  length of a.
 
     """
-    BLOCK_DIM = 32
-    # TODO: Implement for Task 3.3.
-    raise NotImplementedError('Need to implement for Task 3.3')
+    BLOCK_DIM = 32  # equals to `THREADS_PER_BLOCK`
+    # The memory will be shared only within the same block,
+    # according to https://numba.pydata.org/numba-doc/latest/cuda/memory.html
+    shared_mem = cuda.shared.array(shape=(1), dtype=numba.float64)
+
+    pos = cuda.grid(1)
+    if pos >= size:
+        return
+
+    # initialize for each block memory
+    if pos % BLOCK_DIM == 0:
+        shared_mem[0] = 0
+    cuda.syncthreads()
+
+    cuda.atomic.add(shared_mem, 0, a[pos])
+    cuda.syncthreads()
+
+    # sum up each block respectively
+    if pos % BLOCK_DIM == 0:
+        cuda.atomic.add(out, 0, shared_mem[0])
+        cuda.syncthreads()
 
 
 jit_sum_practice = cuda.jit()(_sum_practice)
@@ -195,8 +293,40 @@ def tensor_reduce(fn):
         reduce_value,
     ):
         BLOCK_DIM = 1024
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        # each block is responsible for each element of `out_a`
+        shared_mem = cuda.shared.array(shape=(BLOCK_DIM), dtype=a_storage.dtype)
+        # Thread id in a 1D block, corresponding to the index along the reduce dimension of `a`
+        tx = cuda.threadIdx.x
+        # Block id in a 1D grid, corresponding to the index of `out`
+        ty = cuda.blockIdx.x
+        reduce_size = a_shape[reduce_dim]
+        pos = cuda.grid(1)
+        # only use threads within the reduce dimension
+        if tx >= reduce_size:
+            return
+
+        # preload data
+        max_index_size = 10
+        a_index = cuda.local.array(shape=max_index_size, dtype=numba.int64)
+        to_index(ty, out_shape, a_index)
+        a_index[reduce_dim] = tx
+        a_pos = index_to_position(a_index, a_strides)
+        shared_mem[tx] = a_storage[a_pos]
+        cuda.syncthreads()
+
+        # improve the efficiency in a "merge-sort" manner
+        # refer to https://numba.readthedocs.io/en/stable/cuda/examples.html#id12
+        s = 1
+        while s < reduce_size:
+            if tx % (2 * s) == 0 and tx + s < reduce_size:
+                # merge
+                shared_mem[tx] = fn(shared_mem[tx], shared_mem[tx + s])
+            s *= 2
+            cuda.syncthreads()
+
+        if tx == 0:
+            # the result will finally be reduced into the position 0
+            out[ty] = shared_mem[0]
 
     return cuda.jit()(_reduce)
 
@@ -224,17 +354,24 @@ def reduce(fn, start=0.0):
     Returns:
         :class:`Tensor` : new tensor
     """
+    assert fn in [operators.add, operators.mul, operators.max], \
+        f'Got unexpected function {fn}'
     f = tensor_reduce(cuda.jit(device=True)(fn))
 
     def ret(a, dim):
         out_shape = list(a.shape)
-        out_shape[dim] = (a.shape[dim] - 1) // 1024 + 1
+        # out_shape[dim] = (a.shape[dim] - 1) // 1024 + 1
+        out_shape[dim] = 1
         out_a = a.zeros(tuple(out_shape))
 
         threadsperblock = 1024
         blockspergrid = out_a.size
+        # control the data movement
+        a_storage, a_shape, a_strides = a.tuple()
+        # no need to copy the `a_storage` back
+        d_a_storage = cuda.to_device(a_storage)
         f[blockspergrid, threadsperblock](
-            *out_a.tuple(), out_a.size, *a.tuple(), dim, start
+            *out_a.tuple(), out_a.size, d_a_storage, a_shape, a_strides, dim, start
         )
 
         return out_a
@@ -267,13 +404,40 @@ def _mm_practice(out, a, b, size):
     Args:
         out (array): storage for `out` tensor.
         a (array): storage for `a` tensor.
-        b (array): storage for `a` tensor.
+        b (array): storage for `b` tensor.
         size (int): size of the square
 
     """
     BLOCK_DIM = 32
-    # TODO: Implement for Task 3.3.
-    raise NotImplementedError('Need to implement for Task 3.3')
+    MEM_SIZE = 1024  # 32 * 32
+    # use shared memory to avoid load data multiple times
+    # refer to https://numba.pydata.org/numba-doc/latest/cuda/examples.html#cuda-matmul
+    a_shared_mem = cuda.shared.array(shape=(MEM_SIZE), dtype=numba.float64)
+    b_shared_mem = cuda.shared.array(shape=(MEM_SIZE), dtype=numba.float64)
+    # each thread corresponds to each position of the output matrix
+    tx = cuda.threadIdx.x
+    ty = cuda.threadIdx.y
+    if tx >= size or ty >= size:
+        return
+    pos = tx * size + ty
+
+    # preload data
+    # each thread is responsible for each position
+    a_shared_mem[pos] = a[pos]
+    b_shared_mem[pos] = b[pos]
+    cuda.syncthreads()
+
+    reduction = .0
+    # (tx, 0)
+    a_start_pos = tx * size
+    # (0, ty)
+    b_start_pos = ty
+    for i in range(size):
+        # strides are (size, 1)
+        a_cur_pos = a_start_pos + i
+        b_cur_pos = b_start_pos + size * i
+        reduction += a_shared_mem[a_cur_pos] * b_shared_mem[b_cur_pos]
+    out[pos] = reduction
 
 
 jit_mm_practice = cuda.jit()(_mm_practice)
@@ -336,8 +500,52 @@ def tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
     BLOCK_DIM = 32
-    # TODO: Implement for Task 3.4.
-    raise NotImplementedError('Need to implement for Task 3.4')
+    # use shared memory to avoid load data multiple times
+    # refer to https://numba.pydata.org/numba-doc/latest/cuda/examples.html#cuda-matmul
+    a_shared_mem = cuda.shared.array(shape=(BLOCK_DIM, BLOCK_DIM), dtype=numba.float64)
+    b_shared_mem = cuda.shared.array(shape=(BLOCK_DIM, BLOCK_DIM), dtype=numba.float64)
+    # each thread corresponds to each position of the output matrix
+    # we should use the coordinates in the global view of grid
+    gx, gy, _ = cuda.grid(3)
+    tx = cuda.threadIdx.x
+    ty = cuda.threadIdx.y
+    # the z of block index is the index of batch
+    bz = cuda.blockIdx.z
+    # we would still need some "one-side" outliers to preload data later
+    if gx >= out_shape[1] and gy >= out_shape[2]:
+        return
+
+    # to deal with batch size broadcast,
+    # take into account batch stride and compute position directly
+    # we also need to avoid outliers
+    # (z, x, ty)
+    a_start_pos = bz * a_batch_stride + (gx % a_shape[-2]) * a_strides[-2] + ty * a_strides[-1]
+    # (z, tx, y)
+    b_start_pos = bz * b_batch_stride + tx * b_strides[-2] + (gy % b_shape[-1]) * b_strides[-1]
+    reduce_size = a_shape[-1]
+    reduction = .0
+    # the number of preloading loops should depend on the reduce size
+    num_preload_loops = (reduce_size - 1) // BLOCK_DIM + 1
+    # keep track of the reduce progress
+    reduce_left = reduce_size
+    for i in range(num_preload_loops):
+        # preload data circularly
+        # load `a[z, x, ty + i * blockDim]`
+        a_cur_pos = a_start_pos + a_strides[-1] * i * BLOCK_DIM
+        a_shared_mem[tx, ty] = a_storage[a_cur_pos]
+        # load `b[z, tx + i * blockDim, y]`
+        b_cur_pos = b_start_pos + b_strides[-2] * i * BLOCK_DIM
+        b_shared_mem[tx, ty] = b_storage[b_cur_pos]
+        cuda.syncthreads()
+
+        local_reduce_size = min(BLOCK_DIM, reduce_left)
+        for k in range(local_reduce_size):
+            reduction += a_shared_mem[tx, k] * b_shared_mem[k, ty]
+            reduce_left -= 1
+        cuda.syncthreads()
+    if gx < out_shape[1] and gy < out_shape[2]:
+        out_pos = bz * out_strides[0] + gx * out_strides[1] + gy * out_strides[2]
+        out[out_pos] = reduction
 
 
 def matrix_multiply(a, b):
@@ -381,8 +589,16 @@ def matrix_multiply(a, b):
     )
     threadsperblock = (THREADS_PER_BLOCK, THREADS_PER_BLOCK, 1)
 
+    # control the data movement
+    a_storage, a_shape, a_strides = a.tuple()
+    b_storage, b_shape, b_strides = b.tuple()
+    # no need to copy the input storages back
+    d_a_storage = cuda.to_device(a_storage)
+    d_b_storage = cuda.to_device(b_storage)
     tensor_matrix_multiply[blockspergrid, threadsperblock](
-        *out.tuple(), out.size, *a.tuple(), *b.tuple()
+        *out.tuple(), out.size,
+        d_a_storage, a_shape, a_strides,
+        d_b_storage, b_shape, b_strides
     )
 
     # Undo 3d if we added it.

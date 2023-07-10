@@ -6,6 +6,7 @@ from .tensor_data import (
     shape_broadcast,
     MAX_DIMS,
 )
+from . import operators
 from numba import njit, prange
 
 
@@ -43,8 +44,29 @@ def tensor_map(fn):
     """
 
     def _map(out, out_shape, out_strides, in_storage, in_shape, in_strides):
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        # when `out` and `in` are stride-aligned, avoid indexing
+        if np.array_equal(in_shape, out_shape) and np.array_equal(in_strides, out_strides):
+            for pos in prange(len(out)):
+                out[pos] = fn(in_storage[pos])
+        else:
+            if np.array_equal(in_shape, out_shape):
+                need_broadcast = False
+            else:
+                need_broadcast = True
+            # broadcast to `out_shape`
+            # iterate over each positions of `out`
+            for out_pos in prange(len(out)):
+                # compute the index of each position
+                out_index = np.zeros_like(out_shape)
+                to_index(out_pos, out_shape, out_index)
+                if need_broadcast:
+                    # broadcast into `out_shape`
+                    in_index = np.zeros_like(in_shape)
+                    broadcast_index(out_index, out_shape, in_shape, in_index)
+                else:
+                    in_index = out_index
+                in_pos = index_to_position(in_index, in_strides)
+                out[out_pos] = fn(in_storage[in_pos])
 
     return njit(parallel=True)(_map)
 
@@ -117,8 +139,33 @@ def tensor_zip(fn):
         b_shape,
         b_strides,
     ):
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        # when `out`, `a`, `b` are stride-aligned, avoid indexing
+        if np.array_equal(a_shape, b_shape) and np.array_equal(b_shape, out_shape) and \
+                np.array_equal(a_strides, b_strides) and np.array_equal(b_strides, out_strides):
+            for pos in prange(len(out)):
+                out[pos] = fn(a_storage[pos], b_storage[pos])
+        else:
+            if np.array_equal(a_shape, b_shape):
+                need_broadcast = False
+            else:
+                need_broadcast = True
+            # broadcast to `out_shape`
+            # iterate over each positions of `out`
+            for out_pos in prange(len(out)):
+                # compute the index of each position
+                out_index = np.zeros_like(out_shape)
+                to_index(out_pos, out_shape, out_index)
+                if need_broadcast:
+                    # broadcast into `out_shape`
+                    a_index = np.zeros_like(a_shape)
+                    b_index = np.zeros_like(b_shape)
+                    broadcast_index(out_index, out_shape, a_shape, a_index)
+                    broadcast_index(out_index, out_shape, b_shape, b_index)
+                else:
+                    a_index = b_index = out_index
+                a_pos = index_to_position(a_index, a_strides)
+                b_pos = index_to_position(b_index, b_strides)
+                out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return njit(parallel=True)(_zip)
 
@@ -173,10 +220,34 @@ def tensor_reduce(fn):
         None : Fills in `out`
 
     """
+    # avoid mentioning self-defined function in `prange` loops
+    op = fn.__name__
 
     def _reduce(out, out_shape, out_strides, a_storage, a_shape, a_strides, reduce_dim):
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        # iterate over each positions of `out`
+        for out_pos in prange(len(out)):
+            # compute the index of each position
+            a_index = np.zeros_like(out_shape)
+            to_index(out_pos, out_shape, a_index)
+            # iterate over the reduce dimension
+            a_index[reduce_dim] = 0
+            a_pos = index_to_position(a_index, a_strides)
+            # copy the original value out to avoid race condition
+            reduction = out[out_pos]
+            for i in prange(a_shape[reduce_dim]):
+                # add stride manually
+                # declare a new local variable to avoid race condition
+                cur_pos = a_pos + a_strides[reduce_dim] * i
+                # avoid calling function
+                if op == 'add':
+                    reduction += a_storage[cur_pos]
+                elif op == 'mul':
+                    reduction *= a_storage[cur_pos]
+                elif op == 'max':
+                    reduction = max(reduction, a_storage[cur_pos])
+                else:
+                    reduction = fn(reduction, a_storage[cur_pos])
+            out[out_pos] = reduction
 
     return njit(parallel=True)(_reduce)
 
@@ -197,6 +268,8 @@ def reduce(fn, start=0.0):
     Returns:
         :class:`Tensor` : new tensor
     """
+    assert fn in [operators.add, operators.mul, operators.max], \
+        f'Got unexpected function {fn}'
 
     f = tensor_reduce(njit()(fn))
 
@@ -257,8 +330,24 @@ def tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
 
-    # TODO: Implement for Task 3.2.
-    raise NotImplementedError('Need to implement for Task 3.2')
+    reduce_size = a_shape[-1]
+    for out_pos in prange(len(out)):
+        # TODO not to use index buffer
+        # compute the index of each position
+        out_index = np.zeros_like(out_shape)
+        to_index(out_pos, out_shape, out_index)
+        # to deal with batch size broadcast,
+        # take into account batch stride and compute position directly
+        # (out0, out1, 0)
+        a_start_pos = out_index[0] * a_batch_stride + out_index[1] * a_strides[-2]
+        # (out0, 0, out2)
+        b_start_pos = out_index[0] * b_batch_stride + out_index[2] * b_strides[-1]
+        reduction = out[out_pos]
+        for i in prange(reduce_size):
+            a_cur_pos = a_start_pos + a_strides[-1] * i
+            b_cur_pos = b_start_pos + b_strides[-2] * i
+            reduction += a_storage[a_cur_pos] * b_storage[b_cur_pos]
+        out[out_pos] = reduction
 
 
 def matrix_multiply(a, b):

@@ -63,9 +63,9 @@ def sigmoid(x: float) -> float:
     for stability.
     """
     if x >= 0:
-        return 1.0 / (1.0 + exp(-x))
+        return 1.0 / (1.0 + math.exp(-x))
     else:
-        exponent = exp(x)
+        exponent = math.exp(x)
         return exponent / (1.0 + exponent)
 
 
@@ -93,7 +93,7 @@ def exp(x: float) -> float:
 
 def log_back(x: float, d: float) -> float:
     r"If $f = log$ as above, compute $d \times f'(x)$"
-    return d * inv(x)
+    return d / (x + EPS)
 
 
 def inv(x: float) -> float:
@@ -103,7 +103,7 @@ def inv(x: float) -> float:
 
 def inv_back(x: float, d: float) -> float:
     r"If $f(x) = 1/x$ compute $d \times f'(x)$"
-    return -d * inv(x**2)
+    return -d / (x**2 + EPS)
 
 
 def relu_back(x: float, d: float) -> float:
@@ -201,5 +201,4 @@ def sum(ls: Iterable[float]) -> float:
 
 def prod(ls: Iterable[float]) -> float:
     "Product of a list using `reduce` and `mul`."
-    # TODO: Implement for Task 0.3.
     return reduce(mul, 1)(ls)

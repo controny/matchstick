@@ -1,7 +1,8 @@
 import minitorch
-import datasets
+from minitorch import datasets
 import numba
 import random
+import time
 
 FastTensorBackend = minitorch.make_tensor_backend(minitorch.FastOps)
 if numba.cuda.is_available():
@@ -75,6 +76,7 @@ class FastTrain:
             random.shuffle(c)
             X_shuf, y_shuf = zip(*c)
 
+            tik = time.time()
             for i in range(0, len(X_shuf), BATCH):
                 optim.zero_grad()
                 X = minitorch.tensor(X_shuf[i : i + BATCH], backend=self.backend)
@@ -90,10 +92,13 @@ class FastTrain:
 
                 # Update
                 optim.step()
+            tok = time.time()
 
             losses.append(total_loss)
             # Logging
             if epoch % 10 == 0 or epoch == max_epochs:
+                interval = tok - tik
+                print(f'It takes {interval:.2f}s to train an epoch')
                 X = minitorch.tensor(data.X, backend=self.backend)
                 y = minitorch.tensor(data.y, backend=self.backend)
                 out = self.model.forward(X).view(y.shape[0])
@@ -118,11 +123,11 @@ if __name__ == "__main__":
     PTS = args.PTS
 
     if args.DATASET == "xor":
-        data = datasets.xor(PTS)
+        data = datasets['Xor'](PTS)
     elif args.DATASET == "simple":
-        data = datasets.simple(PTS)
+        data = datasets['Simple'](PTS)
     elif args.DATASET == "split":
-        data = datasets.split(PTS)
+        data = datasets['Split'](PTS)
 
     HIDDEN = int(args.HIDDEN)
     RATE = args.RATE

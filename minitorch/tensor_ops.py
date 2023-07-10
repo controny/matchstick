@@ -1,4 +1,6 @@
 import numpy as np
+import itertools
+from . import operators
 from .tensor_data import (
     to_index,
     index_to_position,
@@ -39,8 +41,24 @@ def tensor_map(fn):
     """
 
     def _map(out, out_shape, out_strides, in_storage, in_shape, in_strides):
-        # TODO: Implement for Task 2.2.
-        raise NotImplementedError('Need to implement for Task 2.2')
+        if np.array_equal(in_shape, out_shape):
+            need_broadcast = False
+        else:
+            need_broadcast = True
+        # broadcast to `out_shape`
+        # iterate over each positions of `out`
+        for out_pos in range(len(out)):
+            # compute the index of each position
+            out_index = np.zeros_like(out_shape)
+            to_index(out_pos, out_shape, out_index)
+            if need_broadcast:
+                # broadcast into `out_shape`
+                in_index = np.zeros_like(in_shape)
+                broadcast_index(out_index, out_shape, in_shape, in_index)
+            else:
+                in_index = out_index
+            in_pos = index_to_position(in_index, in_strides)
+            out[out_pos] = fn(in_storage[in_pos])
 
     return _map
 
@@ -94,8 +112,8 @@ def tensor_zip(fn):
     Simple version:
 
     * Fill in the `out` array by applying `fn` to each
-      value of `a_storage` and `b_storage` assuming `out_shape`
-      and `a_shape` are the same size.
+      value of `a_storage` and `b_storage` assuming `a_shape`
+      and `b_shape` are the same size.
 
     Broadcasted version:
 
@@ -130,8 +148,27 @@ def tensor_zip(fn):
         b_shape,
         b_strides,
     ):
-        # TODO: Implement for Task 2.2.
-        raise NotImplementedError('Need to implement for Task 2.2')
+        if np.array_equal(a_shape, b_shape):
+            need_broadcast = False
+        else:
+            need_broadcast = True
+        # broadcast to `out_shape`
+        # iterate over each positions of `out`
+        for out_pos in range(len(out)):
+            # compute the index of each position
+            out_index = np.zeros_like(out_shape)
+            to_index(out_pos, out_shape, out_index)
+            if need_broadcast:
+                # broadcast into `out_shape`
+                a_index = np.zeros_like(a_shape)
+                b_index = np.zeros_like(b_shape)
+                broadcast_index(out_index, out_shape, a_shape, a_index)
+                broadcast_index(out_index, out_shape, b_shape, b_index)
+            else:
+                a_index = b_index = out_index
+            a_pos = index_to_position(a_index, a_strides)
+            b_pos = index_to_position(b_index, b_strides)
+            out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return _zip
 
@@ -201,8 +238,17 @@ def tensor_reduce(fn):
     """
 
     def _reduce(out, out_shape, out_strides, a_storage, a_shape, a_strides, reduce_dim):
-        # TODO: Implement for Task 2.2.
-        raise NotImplementedError('Need to implement for Task 2.2')
+        # iterate over each positions of `out`
+        for out_pos in range(len(out)):
+            # compute the index of each position
+            out_index = np.zeros_like(out_shape)
+            to_index(out_pos, out_shape, out_index)
+            # iterate over the reduce dimension
+            for i in range(a_shape[reduce_dim]):
+                a_index = np.array(out_index)
+                a_index[reduce_dim] = i
+                a_pos = index_to_position(a_index, a_strides)
+                out[out_pos] = fn(out[out_pos], a_storage[a_pos])
 
     return _reduce
 

@@ -9,6 +9,7 @@ import numpy as np
 from . import operators
 from .tensor import Tensor
 import random
+from typing import Tuple
 
 
 # Constructors
@@ -87,67 +88,76 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
 
         class Add(Function):
             @staticmethod
-            def forward(ctx, t1, t2):
-                return add_zip(t1, t2)
+            def forward(ctx, a, b):
+                ctx.save_for_backward(a.shape, b.shape)
+                return add_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                return grad_output, grad_output
+                a_shape, b_shape = ctx.saved_values
+                return \
+                    adjust_grad_shape(grad_output, a_shape), \
+                    adjust_grad_shape(grad_output, b_shape)
 
         class Mul(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                ctx.save_for_backward(a, b)
+                return mul_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                a, b = ctx.saved_values
+                return \
+                    adjust_grad_shape(mul_zip(grad_output, b), a.shape), \
+                    adjust_grad_shape(mul_zip(grad_output, a), b.shape)
 
         class Sigmoid(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                sigmoid_res = sigmoid_map(a)
+                ctx.save_for_backward(sigmoid_res)
+                return sigmoid_res
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                sigmoid_res = ctx.saved_values
+                # sigmoid_res * (1 - sigmoid_res) * grad_output
+                return sigmoid_res * (1 - sigmoid_res) * grad_output
 
         class ReLU(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                ctx.save_for_backward(a)
+                return relu_map(a)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                a = ctx.saved_values
+                return relu_back_zip(a, grad_output)
 
         class Log(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                ctx.save_for_backward(a)
+                return log_map(a)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                a = ctx.saved_values
+                return log_back_zip(a, grad_output)
 
         class Exp(Function):
             @staticmethod
             def forward(ctx, a):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                exp_res = exp_map(a)
+                ctx.save_for_backward(exp_res)
+                return exp_res
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                exp_res = ctx.saved_values
+                return mul_zip(exp_res, grad_output)
 
         class Sum(Function):
             @staticmethod
@@ -183,41 +193,46 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
         class LT(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                ctx.save_for_backward(a.shape, b.shape)
+                return lt_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                a_shape, b_shape = ctx.saved_values
+                return zeros(a_shape), zeros(b_shape)
 
         class EQ(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                ctx.save_for_backward(a.shape, b.shape)
+                return eq_zip(a, b)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                a_shape, b_shape = ctx.saved_values
+                return zeros(a_shape), zeros(b_shape)
 
         class IsClose(Function):
             @staticmethod
             def forward(ctx, a, b):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+                return is_close_zip(a, b)
 
         class Permute(Function):
             @staticmethod
-            def forward(ctx, a, order):
-                # TODO: Implement for Task 2.3.
-                raise NotImplementedError('Need to implement for Task 2.3')
+            def forward(ctx, a: Tensor, order: Tuple):
+                ctx.save_for_backward(order)
+                return Tensor(a._tensor.permute(*order), backend=a.backend)
 
             @staticmethod
             def backward(ctx, grad_output):
-                # TODO: Implement for Task 2.4.
-                raise NotImplementedError('Need to implement for Task 2.4')
+                ori_order = ctx.saved_values
+                reversed_order = [0] * len(ori_order)
+                for i, pos in enumerate(ori_order):
+                    # move position `i` to position `pos`
+                    reversed_order[pos] = i
+                return Tensor(
+                    grad_output._tensor.permute(*reversed_order),
+                    backend=grad_output.backend)
 
         class View(Function):
             @staticmethod
@@ -257,10 +272,12 @@ def make_tensor_backend(tensor_ops, is_cuda=False):
                     order[-2], order[-1] = order[-1], order[-2]
                     return a._new(a._tensor.permute(*order))
 
-                return (
-                    tensor_ops.matrix_multiply(grad_output, transpose(t2)),
-                    tensor_ops.matrix_multiply(transpose(t1), grad_output),
-                )
+                grad1 = adjust_grad_shape(
+                    tensor_ops.matrix_multiply(grad_output, transpose(t2)), t1.shape)
+                grad2 = adjust_grad_shape(
+                    tensor_ops.matrix_multiply(transpose(t1), grad_output), t2.shape)
+
+                return grad1, grad2
 
     return Backend
 
@@ -269,6 +286,36 @@ TensorFunctions = make_tensor_backend(TensorOps)
 
 
 # Helpers for Constructing tensors
+def adjust_grad_shape(grad: Tensor, old_shape: Tuple):
+    """Adjust shape of `grad` into `old_shape` due to potential broadcasting"""
+    if grad.shape == old_shape:
+        return grad
+    # squeeze extra dimensions
+    num_squeeze = grad.dims - len(old_shape)
+    for i in range(num_squeeze):
+        grad = grad.sum(i)
+    grad = grad.view(*grad.shape[num_squeeze:])
+    # sum over the rest broadcasted dimensions respectively
+    for i, (new_dim, old_dim) in enumerate(zip(grad.shape, old_shape)):
+        if new_dim != old_dim:
+            grad = grad.sum(dim=i)
+    return grad
+
+
+def ones(shape, backend=TensorFunctions):
+    """
+    Produce a one tensor of size `shape`.
+
+    Args:
+        shape (tuple): shape of tensor
+        backend (:class:`Backend`): tensor backend
+
+    Returns:
+        :class:`Tensor` : new tensor
+    """
+    return Tensor.make([1] * int(operators.prod(shape)), shape, backend=backend)
+
+
 def zeros(shape, backend=TensorFunctions):
     """
     Produce a zero tensor of size `shape`.
