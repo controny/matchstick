@@ -50,7 +50,7 @@ def to_index(ordinal: int, shape: Tuple[int], out_index: ArrayLike) -> None:
       None : Fills in `out_index`.
 
     """
-    for i in range(len(shape) - 1, -1 ,-1):
+    for i in range(len(shape) - 1, -1 , -1):
         dim = shape[i]
         cur_idx = ordinal % dim
         out_index[i] = cur_idx

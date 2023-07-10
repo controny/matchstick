@@ -75,7 +75,7 @@ class Tensor(Variable):
 
     def __radd__(self, b):
         return self.__add__(b)
- 
+
     def __sub__(self, b):
         return self.backend.Add.apply(self, -self._ensure_tensor(b))
 
@@ -84,7 +84,7 @@ class Tensor(Variable):
 
     def __mul__(self, b):
         return self.backend.Mul.apply(self, self._ensure_tensor(b))
-    
+
     def __rmul__(self, b):
         return self.__mul__(b)
 

@@ -301,6 +301,7 @@ def adjust_grad_shape(grad: Tensor, old_shape: Tuple):
             grad = grad.sum(dim=i)
     return grad
 
+
 def ones(shape, backend=TensorFunctions):
     """
     Produce a one tensor of size `shape`.

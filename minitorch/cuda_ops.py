@@ -21,6 +21,7 @@ broadcast_index = cuda.jit(device=True)(broadcast_index)
 
 THREADS_PER_BLOCK = 32
 
+
 @cuda.jit(device=True)
 def array_equal(a, b):
     if len(a) != len(b):
@@ -156,7 +157,7 @@ def tensor_zip(fn):
         if pos < out_size:
             # when `out`, `a`, `b` are stride-aligned, avoid indexing
             if array_equal(a_shape, b_shape) and array_equal(b_shape, out_shape) and \
-                array_equal(a_strides, b_strides) and array_equal(b_strides, out_strides):
+                    array_equal(a_strides, b_strides) and array_equal(b_strides, out_strides):
                 out[pos] = fn(a_storage[pos], b_storage[pos])
             else:
                 # hardcoded static allocation
@@ -322,7 +323,7 @@ def tensor_reduce(fn):
                 shared_mem[tx] = fn(shared_mem[tx], shared_mem[tx + s])
             s *= 2
             cuda.syncthreads()
-        
+
         if tx == 0:
             # the result will finally be reduced into the position 0
             out[ty] = shared_mem[0]

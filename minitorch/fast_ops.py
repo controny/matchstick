@@ -141,7 +141,7 @@ def tensor_zip(fn):
     ):
         # when `out`, `a`, `b` are stride-aligned, avoid indexing
         if np.array_equal(a_shape, b_shape) and np.array_equal(b_shape, out_shape) and \
-            np.array_equal(a_strides, b_strides) and np.array_equal(b_strides, out_strides):
+                np.array_equal(a_strides, b_strides) and np.array_equal(b_strides, out_strides):
             for pos in prange(len(out)):
                 out[pos] = fn(a_storage[pos], b_storage[pos])
         else:
@@ -236,7 +236,7 @@ def tensor_reduce(fn):
             reduction = out[out_pos]
             for i in prange(a_shape[reduce_dim]):
                 # add stride manually
-                # declare a new local variable to avoid race condition 
+                # declare a new local variable to avoid race condition
                 cur_pos = a_pos + a_strides[reduce_dim] * i
                 # avoid calling function
                 if op == 'add':
